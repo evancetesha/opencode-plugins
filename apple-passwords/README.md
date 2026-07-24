@@ -33,6 +33,24 @@ This reads the keychain and injects the values into the environment used by
 subsequent shell commands in that session. Run it again at any time to refresh
 after updating the keychain. Nothing is loaded automatically at startup.
 
+### Selecting a keychain
+
+`/load-env` takes an optional argument to choose which keychain to read, so you
+can switch between keychains within a session:
+
+| Command | Keychain read |
+| --- | --- |
+| `/load-env` | The default (`OPENCODE_KEYCHAIN`, or `~/Library/Keychains/opencode.keychain-db`) |
+| `/load-env work` | `~/Library/Keychains/work.keychain-db` (bare name → profile) |
+| `/load-env ~/secrets/ci.keychain-db` | An explicit path (leading `~` expanded) |
+
+A bare name must match `[A-Za-z0-9._-]+`; a trailing `.keychain-db` is optional
+and added automatically. Anything containing a `/` is treated as a path.
+Loading replaces the previously loaded values for the session.
+
+The item's service/account within the selected keychain still come from
+`OPENCODE_KEYCHAIN_SERVICE` / `OPENCODE_KEYCHAIN_ACCOUNT` (defaults `opencode`).
+
 ## Configuration
 
 Configured via environment variables:
