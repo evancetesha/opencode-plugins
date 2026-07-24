@@ -235,8 +235,12 @@ export const ApplePasswordsPlugin: Plugin = async ({ client }) => {
         config.command[COMMAND] = {
           description:
             "Load secrets from a macOS keychain into the shell environment. Optional arg selects the keychain: /load-env <name|path>",
-          template:
-            'Reply with exactly "env loaded" and nothing else. Do not read, print, echo, or reference any environment variables, secrets, or shell state.',
+          // The template is always shown as the prompt bubble AND sent to the
+          // model (opencode has no silent command). Keep it a bare statement,
+          // not a task: the model never receives secret values (they are only
+          // injected into shell.env at tool-execution time), so a no-op
+          // statement gives a clean "env loaded" with nothing to inspect.
+          template: "env loaded",
         }
       }
     },
