@@ -6,7 +6,17 @@ import type { Plugin } from "@opencode-ai/plugin"
  * Apple Passwords (macOS Keychain) plugin for OpenCode.
  *
  * Reads a secure note from a macOS keychain and injects its KEY=VALUE pairs
- * as shell environment variables. Only activates when OPENCODE_KEYCHAIN is set.
+ * as shell environment variables.
+ *
+ * Secrets are loaded on demand: run the `/load-env` command in a session to
+ * read the keychain and make the values available to that session's shell
+ * commands. Nothing is loaded automatically at startup. Loaded values are
+ * isolated per session and evicted when the session is deleted.
+ *
+ * The command takes an optional argument selecting the keychain:
+ *   /load-env            - default keychain (OPENCODE_KEYCHAIN or built-in default)
+ *   /load-env work       - ~/Library/Keychains/work.keychain-db
+ *   /load-env ~/path.db  - an explicit keychain path
  *
  * Configuration (env vars):
  *   OPENCODE_KEYCHAIN         - Path to keychain (default: ~/Library/Keychains/opencode.keychain-db)
@@ -29,7 +39,11 @@ import type { Plugin } from "@opencode-ai/plugin"
  */
 
 const SERVICE = "apple-passwords"
-const DEFAULT_KEYCHAIN = `${homedir()}/Library/Keychains/opencode.keychain-db`
+const COMMAND = "load-env"
+const KEYCHAIN_DIR = `${homedir()}/Library/Keychains`
+const KEYCHAIN_SUFFIX = ".keychain-db"
+const PROFILE_NAME = /^[A-Za-z0-9._-]+$/
+const DEFAULT_KEYCHAIN = `${KEYCHAIN_DIR}/opencode${KEYCHAIN_SUFFIX}`
 const DEFAULT_ITEM_SERVICE = "opencode"
 const DEFAULT_ITEM_ACCOUNT = "opencode"
 const ITEM_KIND = "secure note"
@@ -46,6 +60,29 @@ const DENY_PREFIXES = ["LD_", "DYLD_", "BASH_FUNC_", "GIT_CONFIG_"]
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Resolve a `/load-env` argument to a keychain path.
+ *   ""            -> the default keychain (OPENCODE_KEYCHAIN or built-in default)
+ *   "work"        -> ~/Library/Keychains/work.keychain-db  (profile name)
+ *   "./x" | "~/x" -> treated as an explicit path (leading ~ expanded)
+ * Returns null for names that are neither a path nor a safe profile name.
+ */
+function resolveKeychain(arg: string, fallback: string): string | null {
+  const value = arg.trim()
+  if (!value) return fallback
+
+  if (value.includes("/")) {
+    return value.startsWith("~/") ? `${homedir()}${value.slice(1)}` : value
+  }
+
+  if (!PROFILE_NAME.test(value)) return null
+
+  const base = value.endsWith(KEYCHAIN_SUFFIX)
+    ? value.slice(0, -KEYCHAIN_SUFFIX.length)
+    : value
+  return `${KEYCHAIN_DIR}/${base}${KEYCHAIN_SUFFIX}`
 }
 
 function isAllowedName(name: string): boolean {
@@ -172,7 +209,7 @@ async function loadSecrets(client: Parameters<Plugin>[0]["client"], keychain: st
     body: {
       service: SERVICE,
       level: "info",
-      message: `Loaded ${Object.keys(env).length} secret(s) from keychain`,
+      message: `Loaded ${Object.keys(env).length} secret(s) from ${keychain}`,
     },
   })
 
@@ -186,15 +223,47 @@ export const ApplePasswordsPlugin: Plugin = async ({ client }) => {
   const service = process.env.OPENCODE_KEYCHAIN_SERVICE || DEFAULT_ITEM_SERVICE
   const account = process.env.OPENCODE_KEYCHAIN_ACCOUNT || DEFAULT_ITEM_ACCOUNT
 
-  let env: Record<string, string> = await loadSecrets(client, keychain, service, account)
+  // Secrets are loaded on demand via the `/load-env` command, never at startup.
+  // Each session keeps its own set, keyed by sessionID, so loading in one
+  // session never leaks into another.
+  const bySession = new Map<string, Record<string, string>>()
 
   return {
-    event: async ({ event }) => {
-      if (event.type !== "session.created") return
-      env = await loadSecrets(client, keychain, service, account)
+    config: async (config) => {
+      if (!config.command) config.command = {}
+      if (!config.command[COMMAND]) {
+        config.command[COMMAND] = {
+          description:
+            "Load secrets from a macOS keychain into the shell environment. Optional arg selects the keychain: /load-env <name|path>",
+          template:
+            "Keychain secrets have been loaded into this session's shell environment. Briefly confirm they are available.",
+        }
+      }
     },
-    "shell.env": async (_input, output) => {
-      Object.assign(output.env, env)
+    event: async ({ event }) => {
+      if (event.type === "session.deleted") {
+        bySession.delete(event.properties.info.id)
+      }
+    },
+    "command.execute.before": async (input) => {
+      if (input.command !== COMMAND) return
+      const target = resolveKeychain(input.arguments ?? "", keychain)
+      if (target === null) {
+        await client.app.log({
+          body: {
+            service: SERVICE,
+            level: "warn",
+            message: `Ignoring /load-env: invalid keychain argument "${input.arguments}"`,
+          },
+        })
+        return
+      }
+      bySession.set(input.sessionID, await loadSecrets(client, target, service, account))
+    },
+    "shell.env": async (input, output) => {
+      if (!input.sessionID) return
+      const env = bySession.get(input.sessionID)
+      if (env) Object.assign(output.env, env)
     },
   }
 }
