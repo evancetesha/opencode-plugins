@@ -27,10 +27,11 @@ import type { Plugin } from "@opencode-ai/plugin"
  *   security create-keychain -P "$OPENCODE_KEYCHAIN"
  *   security set-keychain-settings -t 300 -lu "$OPENCODE_KEYCHAIN"
  *
- * Store secrets:
+ * Store secrets (values may be quoted; wrap the -w argument in single quotes so
+ * the shell keeps the inner double quotes literal):
  *   security add-generic-password -s opencode -a opencode -D "secure note" -T "" \
- *     -w "KEY1=value1
- *   KEY2=value2" "$OPENCODE_KEYCHAIN"
+ *     -w 'API_KEY="sk-123"
+ *   DATABASE_URL="postgres://user:pass@host/db"' "$OPENCODE_KEYCHAIN"
  *
  * Update secrets (delete + re-add):
  *   security delete-generic-password -s opencode -a opencode -D "secure note" \
@@ -93,8 +94,37 @@ function isAllowedName(name: string): boolean {
 }
 
 /**
+ * Resolve a possibly-quoted .env value.
+ *   "double"  -> quotes stripped; escape sequences \n \r \t \f \b \" \\ expanded
+ *   'single'  -> quotes stripped; taken literally (no escape processing)
+ *   unquoted  -> taken literally (# is NOT treated as an inline comment, so a
+ *                value may safely contain it)
+ * The value is expected to already be trimmed of surrounding whitespace.
+ */
+function unquote(value: string): string {
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    return value.slice(1, -1).replace(/\\([nrtfb"\\])/g, (_, c: string) => {
+      switch (c) {
+        case "n": return "\n"
+        case "r": return "\r"
+        case "t": return "\t"
+        case "f": return "\f"
+        case "b": return "\b"
+        default: return c // \" or \\
+      }
+    })
+  }
+  if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1)
+  }
+  return value
+}
+
+/**
  * Parse .env-style content into key-value pairs.
- * Supports: KEY=VALUE, blank lines, # comments, quoted values.
+ * Each line is KEY=VALUE. Blank lines and whole-line "#" comments are ignored.
+ * Whitespace around the key and value is trimmed, so `KEY = "value"` works.
+ * Values may be double-quoted, single-quoted, or unquoted (see unquote()).
  */
 function parseEnv(raw: string): { env: Record<string, string>; skipped: string[] } {
   const env: Record<string, string> = {}
@@ -111,15 +141,7 @@ function parseEnv(raw: string): { env: Record<string, string>; skipped: string[]
     }
 
     const key = trimmed.slice(0, eqIdx).trim()
-    let value = trimmed.slice(eqIdx + 1)
-
-    // Strip surrounding quotes
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1)
-    }
+    const value = unquote(trimmed.slice(eqIdx + 1).trim())
 
     if (!isAllowedName(key)) {
       skipped.push(key)

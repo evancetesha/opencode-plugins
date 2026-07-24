@@ -76,8 +76,8 @@ Store your secrets as a single secure note whose body is `.env`-style content:
 
 ```sh
 security add-generic-password -s opencode -a opencode -D "secure note" -T "" \
-  -w 'KEY1=value1
-KEY2=value2' \
+  -w 'API_KEY="sk-123"
+DATABASE_URL="postgres://user:pass@host/db"' \
   "$HOME/Library/Keychains/opencode.keychain-db"
 ```
 
@@ -93,9 +93,13 @@ security delete-generic-password -s opencode -a opencode -D "secure note" \
 
 The secure note body is parsed as `.env`-style content:
 
-- `KEY=VALUE` per line.
-- Blank lines and `#` comments are ignored.
-- Surrounding single or double quotes on values are stripped.
+- `KEY=VALUE` per line. Whitespace around the key and value is trimmed, so
+  `KEY = "value"` also works.
+- Blank lines and whole-line `#` comments are ignored. `#` is **not** treated as
+  an inline comment, so unquoted values may contain it.
+- Values may be double-quoted (`KEY="value"`), single-quoted (`KEY='value'`), or
+  unquoted. In double quotes the escapes `\n \r \t \f \b \" \\` are expanded; in
+  single quotes the value is taken literally.
 - Multi-line values are hex-decoded automatically (macOS `security -w` behavior).
 
 ## Safety
