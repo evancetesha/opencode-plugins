@@ -6,7 +6,11 @@ import type { Plugin } from "@opencode-ai/plugin"
  * Apple Passwords (macOS Keychain) plugin for OpenCode.
  *
  * Reads a secure note from a macOS keychain and injects its KEY=VALUE pairs
- * as shell environment variables. Only activates when OPENCODE_KEYCHAIN is set.
+ * as shell environment variables.
+ *
+ * Secrets are loaded on demand: run the `/load-env` command in a session to
+ * read the keychain and make the values available to that session's shell
+ * commands. Nothing is loaded automatically at startup.
  *
  * Configuration (env vars):
  *   OPENCODE_KEYCHAIN         - Path to keychain (default: ~/Library/Keychains/opencode.keychain-db)
@@ -29,6 +33,7 @@ import type { Plugin } from "@opencode-ai/plugin"
  */
 
 const SERVICE = "apple-passwords"
+const COMMAND = "load-env"
 const DEFAULT_KEYCHAIN = `${homedir()}/Library/Keychains/opencode.keychain-db`
 const DEFAULT_ITEM_SERVICE = "opencode"
 const DEFAULT_ITEM_ACCOUNT = "opencode"
@@ -186,11 +191,22 @@ export const ApplePasswordsPlugin: Plugin = async ({ client }) => {
   const service = process.env.OPENCODE_KEYCHAIN_SERVICE || DEFAULT_ITEM_SERVICE
   const account = process.env.OPENCODE_KEYCHAIN_ACCOUNT || DEFAULT_ITEM_ACCOUNT
 
-  let env: Record<string, string> = await loadSecrets(client, keychain, service, account)
+  // Secrets are loaded on demand via the `/load-env` command, never at startup.
+  let env: Record<string, string> = {}
 
   return {
-    event: async ({ event }) => {
-      if (event.type !== "session.created") return
+    config: async (config) => {
+      if (!config.command) config.command = {}
+      if (!config.command[COMMAND]) {
+        config.command[COMMAND] = {
+          description: "Load secrets from the macOS keychain into the shell environment",
+          template:
+            "Keychain secrets have been loaded into this session's shell environment. Briefly confirm they are available.",
+        }
+      }
+    },
+    "command.execute.before": async (input) => {
+      if (input.command !== COMMAND) return
       env = await loadSecrets(client, keychain, service, account)
     },
     "shell.env": async (_input, output) => {

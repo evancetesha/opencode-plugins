@@ -1,12 +1,15 @@
 # apple-passwords
 
 An OpenCode plugin that reads a secure note from a dedicated macOS Keychain and
-injects its `KEY=VALUE` pairs as shell environment variables for the session.
+injects its `KEY=VALUE` pairs as shell environment variables — on demand, when
+you run the `/load-env` command in a session.
 
+- **On demand** — nothing is read at startup; run `/load-env` to load secrets
+  into the current session's shell environment.
 - **Local only** — no network calls, no config files, no master-password env var.
 - **macOS only** — the plugin is a no-op on other platforms.
-- **Opt-in** — reads from a dedicated keychain you create; secrets are cached
-  in-memory for the session and refreshed on `session.created`.
+- **Cached** — once loaded, values are held in-memory for the session; run
+  `/load-env` again to refresh after changing the keychain.
 
 ## Install
 
@@ -17,6 +20,18 @@ mkdir -p ~/.config/opencode/plugins
 curl -fsSL https://raw.githubusercontent.com/evancetesha/opencode-plugins/main/apple-passwords/apple-passwords.ts \
   -o ~/.config/opencode/plugins/apple-passwords.ts
 ```
+
+## Usage
+
+The plugin registers a `/load-env` command. In an OpenCode session, run:
+
+```
+/load-env
+```
+
+This reads the keychain and injects the values into the environment used by
+subsequent shell commands in that session. Run it again at any time to refresh
+after updating the keychain. Nothing is loaded automatically at startup.
 
 ## Configuration
 
