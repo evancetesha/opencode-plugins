@@ -236,7 +236,7 @@ export const ApplePasswordsPlugin: Plugin = async ({ client }) => {
           description:
             "Load secrets from a macOS keychain into the shell environment. Optional arg selects the keychain: /load-env <name|path>",
           template:
-            "Keychain secrets have been loaded into this session's shell environment. Briefly confirm they are available.",
+            'Reply with exactly "env loaded" and nothing else. Do not read, print, echo, or reference any environment variables, secrets, or shell state.',
         }
       }
     },
