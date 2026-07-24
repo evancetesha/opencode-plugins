@@ -6,6 +6,8 @@ you run the `/load-env` command in a session.
 
 - **On demand** — nothing is read at startup; run `/load-env` to load secrets
   into the current session's shell environment.
+- **Per session** — loaded values are scoped to the session that ran `/load-env`
+  and are evicted when that session is deleted; other sessions are unaffected.
 - **Local only** — no network calls, no config files, no master-password env var.
 - **macOS only** — the plugin is a no-op on other platforms.
 - **Cached** — once loaded, values are held in-memory for the session; run

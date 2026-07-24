@@ -10,7 +10,8 @@ import type { Plugin } from "@opencode-ai/plugin"
  *
  * Secrets are loaded on demand: run the `/load-env` command in a session to
  * read the keychain and make the values available to that session's shell
- * commands. Nothing is loaded automatically at startup.
+ * commands. Nothing is loaded automatically at startup. Loaded values are
+ * isolated per session and evicted when the session is deleted.
  *
  * The command takes an optional argument selecting the keychain:
  *   /load-env            - default keychain (OPENCODE_KEYCHAIN or built-in default)
@@ -223,7 +224,9 @@ export const ApplePasswordsPlugin: Plugin = async ({ client }) => {
   const account = process.env.OPENCODE_KEYCHAIN_ACCOUNT || DEFAULT_ITEM_ACCOUNT
 
   // Secrets are loaded on demand via the `/load-env` command, never at startup.
-  let env: Record<string, string> = {}
+  // Each session keeps its own set, keyed by sessionID, so loading in one
+  // session never leaks into another.
+  const bySession = new Map<string, Record<string, string>>()
 
   return {
     config: async (config) => {
@@ -235,6 +238,11 @@ export const ApplePasswordsPlugin: Plugin = async ({ client }) => {
           template:
             "Keychain secrets have been loaded into this session's shell environment. Briefly confirm they are available.",
         }
+      }
+    },
+    event: async ({ event }) => {
+      if (event.type === "session.deleted") {
+        bySession.delete(event.properties.info.id)
       }
     },
     "command.execute.before": async (input) => {
@@ -250,10 +258,12 @@ export const ApplePasswordsPlugin: Plugin = async ({ client }) => {
         })
         return
       }
-      env = await loadSecrets(client, target, service, account)
+      bySession.set(input.sessionID, await loadSecrets(client, target, service, account))
     },
-    "shell.env": async (_input, output) => {
-      Object.assign(output.env, env)
+    "shell.env": async (input, output) => {
+      if (!input.sessionID) return
+      const env = bySession.get(input.sessionID)
+      if (env) Object.assign(output.env, env)
     },
   }
 }
