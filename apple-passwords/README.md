@@ -1,0 +1,76 @@
+# apple-passwords
+
+An OpenCode plugin that reads a secure note from a dedicated macOS Keychain and
+injects its `KEY=VALUE` pairs as shell environment variables for the session.
+
+- **Local only** — no network calls, no config files, no master-password env var.
+- **macOS only** — the plugin is a no-op on other platforms.
+- **Opt-in** — reads from a dedicated keychain you create; secrets are cached
+  in-memory for the session and refreshed on `session.created`.
+
+## Install
+
+Copy the plugin into your OpenCode plugins directory:
+
+```sh
+mkdir -p ~/.config/opencode/plugins
+curl -fsSL https://raw.githubusercontent.com/evancetesha/opencode-plugins/main/apple-passwords/apple-passwords.ts \
+  -o ~/.config/opencode/plugins/apple-passwords.ts
+```
+
+## Configuration
+
+Configured via environment variables:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `OPENCODE_KEYCHAIN` | `~/Library/Keychains/opencode.keychain-db` | Path to the keychain to read from. |
+| `OPENCODE_KEYCHAIN_SERVICE` | `opencode` | Keychain item service name. |
+| `OPENCODE_KEYCHAIN_ACCOUNT` | `opencode` | Keychain item account name. |
+
+## Setup
+
+Create a dedicated keychain (keeps these secrets isolated from your login keychain):
+
+```sh
+security create-keychain -P "$HOME/Library/Keychains/opencode.keychain-db"
+security set-keychain-settings -t 300 -lu "$HOME/Library/Keychains/opencode.keychain-db"
+```
+
+Store your secrets as a single secure note whose body is `.env`-style content:
+
+```sh
+security add-generic-password -s opencode -a opencode -D "secure note" -T "" \
+  -w 'KEY1=value1
+KEY2=value2' \
+  "$HOME/Library/Keychains/opencode.keychain-db"
+```
+
+Update secrets (delete + re-add):
+
+```sh
+security delete-generic-password -s opencode -a opencode -D "secure note" \
+  "$HOME/Library/Keychains/opencode.keychain-db"
+# then re-add with the updated content
+```
+
+## Secret format
+
+The secure note body is parsed as `.env`-style content:
+
+- `KEY=VALUE` per line.
+- Blank lines and `#` comments are ignored.
+- Surrounding single or double quotes on values are stripped.
+- Multi-line values are hex-decoded automatically (macOS `security -w` behavior).
+
+## Safety
+
+Environment variable names are part of the security boundary because the
+`shell.env` hook injects them into every shell execution. The plugin therefore
+skips any name that:
+
+- is not a valid shell identifier (`^[A-Za-z_][A-Za-z0-9_]*$`),
+- is on the denylist (`PATH`, `SHELL`, `HOME`, `NODE_OPTIONS`, `PYTHONPATH`, …), or
+- starts with a dangerous prefix (`LD_`, `DYLD_`, `BASH_FUNC_`, `GIT_CONFIG_`).
+
+Skipped entries and load counts are logged via the OpenCode client logger.
