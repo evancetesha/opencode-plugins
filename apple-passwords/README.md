@@ -100,6 +100,9 @@ The secure note body is parsed as `.env`-style content:
 - Values may be double-quoted (`KEY="value"`), single-quoted (`KEY='value'`), or
   unquoted. In double quotes the escapes `\n \r \t \f \b \" \\` are expanded; in
   single quotes the value is taken literally.
+- Curly/"smart" quotes (`“ ”`, `‘ ’`) around a value are also stripped, in case
+  an editor auto-converted them. Prefer disabling smart quotes when storing
+  secrets so values stay exact.
 - Multi-line values are hex-decoded automatically (macOS `security -w` behavior).
 
 ## Safety

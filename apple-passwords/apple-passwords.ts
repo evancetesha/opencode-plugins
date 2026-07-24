@@ -97,9 +97,12 @@ function isAllowedName(name: string): boolean {
  * Resolve a possibly-quoted .env value.
  *   "double"  -> quotes stripped; escape sequences \n \r \t \f \b \" \\ expanded
  *   'single'  -> quotes stripped; taken literally (no escape processing)
+ *   “smart”   -> curly quotes (from editors with "smart quotes" enabled) are
+ *                stripped literally: “ ” (U+201C/U+201D) and ‘ ’ (U+2018/U+2019)
  *   unquoted  -> taken literally (# is NOT treated as an inline comment, so a
  *                value may safely contain it)
- * The value is expected to already be trimmed of surrounding whitespace.
+ * Only a matched leading/trailing pair is stripped. The value is expected to
+ * already be trimmed of surrounding whitespace.
  */
 function unquote(value: string): string {
   if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
@@ -115,6 +118,13 @@ function unquote(value: string): string {
     })
   }
   if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1)
+  }
+  // Curly/"smart" quotes inserted by editors — strip the matched pair literally.
+  if (value.length >= 2 && value.startsWith("\u201C") && value.endsWith("\u201D")) {
+    return value.slice(1, -1)
+  }
+  if (value.length >= 2 && value.startsWith("\u2018") && value.endsWith("\u2019")) {
     return value.slice(1, -1)
   }
   return value
